@@ -1,0 +1,187 @@
+|About|:
+------
+The source files present in this directory consists of source-code to generate a tracing file system which can be mounted on top of an actual file system and track some particular(open,read,write,close,mkdir,rmdir,unlink) set of system call. This trace file can later be used to replay those specific set of record system call.
+
+Note: This tracing file system will only record system call that are passed to the lower file system.A system call getting failed at the upper layer will not be traced by this file system.
+
+ -------------
+|Source files |
+--------------
+
+As specified all the source files are present in this directory. Please see below for details file descriptions:
+
+User Space: /usr/src/hw2-amkgupta/hw2
+
+1)treplay.h - Header file maintaining all the declaration of the user space application.
+2)treplay.c - This is a user -application which replays the recorded trace file from trfs
+3)trctl.c   - Trctl sets the bitmap of operations that will be tracked by the trfs.Currently it supports 8 operations.
+4)Makefile 	- Makefile to compile user-space code
+
+Kernel Space: /usr/src/hw2-amkgupta/fs/trfs/
+
+Modified Files From Wrapfs.
+
+1)Inode.c - Modified to track sys call such as mkdir,rmdir,unlink
+2)File.c  - Modified to track sys calls such as Open,close,write,read
+3)Main.c -	Modified to add functionalities like initialization of super block, determining mounth path.
+4)Makefile- Modified to generate trfs.ko file so that it can be inserted and removed without compiling the whole kernel code again and again
+5)Kconfig - Modified to include trfs module 
+6)fs/trfs/Kconfig- Modified to include trfs module information required for building the module
+
+
+
+Added:
+
+1)operatins.h - Consists of added structure and declarations for the added functionality. It also consists of flag="FEATUERS" and "EXTRA_FLAGS" to control the tracing. To stop the tracing simply disable the flag "FEATURES".
+2)trfs.h - Modified the existing wrapfs.h to make it compatible with trfs.h,included superblock structure for trfs
+
+
+ -------------
+| Executables |
+ -------------
+Executing "make" in /usr/src/hw2-amkgupta/ will produce  trfs.ko, and several other object file(mainly inode.o,main.o,file.o,mmap.o,) inside the /usr/src/hw2-amkgupta/fs/trfs folder.
+1)trfs.ko - this has to be inserted/removed manually using shell script file "install_module.sh"
+2)install_module.sh - This file consists of shell commands to insert trfs.ko as a module in the kernel.
+   rmmod trfs.ko - for removing the module
+   insmod trfs.ko - for inserting the module
+Executing "make clean" in /usr/src/hw2 directory will remove all the intermediate files and output files.
+
+  -------------------------------------------------------------
+| Steps to be followed for compiling and executing this project |
+  -------------------------------------------------------------
+1) Check-out the repository from GIT. Navigate to the checked-out path.
+2) Either copy kernel.config present in this directory to .config in kernel (or) use "make" by specifying config file.
+3) Run "make modules_install".
+4) Run "make install".
+5) Reboot the kernel and login to the new kernel.
+7) Navigate to the trfs folder <mountedpath>/fs/trfs and run install_module.sh
+8) After this mount the trfs fs using following command
+	mount -t trfs -o tfile=<trace file path> <any lower path mount> <mount point>
+ 
+ -------------------------------
+| Compiling the user-application|
+ --------------------------------
+ 
+Executing "make" in /usr/src/hw2-amkgupta/hw2 directory ,will compile user-application and will generate 2 executable files namely treplay and trctl.
+
+ -------------------------------
+| Executing the user-application|
+ -------------------------------
+
+ After mounting the trfs and tracing some system calls, traced file can be used to replay all the tracked system calls sequentially.
+ To run the user program following syntax should be followed
+./treplay {-n|-s} trace_file
+{-n|-s} : 
+if -n flag is provided record will be read and displayed on terminal
+if -s flag is set records will be replayed and displyed and if any deviation is found program will be terminated.
+if no flags are provided ,records will be replayed and displayed on the screen and in case of any deviation it will be pointed out but program will continue execution.
+if -n and -s provided together, then error will be thown for invalid combination.
+
+Trctl can be run as:
+--------------------
+./trctl [all|none|0xNN] <mount point>
+
+0xNN should be within (0x01	0x02 0x04 0x08 0x10	0x20 0x80)
+all: option will set all the bits to one
+none: will not trace any system call.
+
+<mountpoint>: mount point of the directory where trace file system is mounted
+
+ 						--------------X----------------------X----------------------------X-------------------
+
+
+		 
+Architecture of implementing TRFS File System.
+_______________________________________________
+  
+A) Kernel-Side:
+
+As soon as file system is mounted, I have created the trace file at the requested path provided during the mount point.Furthermore I have included bitmap field in the super block of fs, which will be set to all 1 whenever the system is mounted for the first time.Apartment from this I have also included record_id field with super block , so that each operation can then use this value to increase the record monotonically.This record_id is initialized to 0 at the time of mount.
+
+
+I have used following structure to record the necessary details from the system call execution.This will serve as the metadata for each record that is followed by this structure specifically in case of read,write data where rsize is used to determine the bytes of data that are present after this structure which is going to be stored in the trace file.
+Parameters:
+typedef struct {
+	int record_size;
+	int record_id;
+	unsigned long fp;
+	unsigned short rsize;  
+	int rtype;
+	unsigned short flag;
+	unsigned int perm; 
+	unsigned short pathlength;
+	int err;
+	char pname[1];
+	}record;
+
+Details of each of the fields:
+
+a)Record-Size: This field will hold the size of the meta data ,which will be read first and based this size next data block will be read.I have 				done it in this way because this will prevent program to divide the metadata of the single record in two reads which might 						create the problem while replaying back.
+
+b)Record_id: This will store the record id for each of records laid out on trace file
+
+c)fp(file pointer) : This field is used to keep the track of tone file being opened and operated upon continuously.This is done so that at the	time of replay same file should not be opened repeatedly. e.g. if some operation is performed as open, write,read. etc
+					it can be done is used space with single fd, by mapping this saved fp with fd that we will get on opening the file and then using it again for further operation like write and read etc.
+
+d)rsize(record size:	This field is updated only for read and write operation. It will tell the replayer how many bytes further to metadata are there 				which has either to be read and displayed or written back to the file.
+
+e)rtype(record_type) :	This field will tell the kind of record that is stored,currently my program supports 7 types of record as follows:
+OP_OPEN			0x01
+OP_CLOSE		0x02
+OP_READ			0x04
+OP_WRITE		0x08
+OP_MKDIR		0x10
+OP_RMDIR		0x20
+OP_UNLINK		0x80		
+
+The replay will display the same data in decimal form.
+
+f)flag : This field is used to track the flag that are provided while operating on a file.
+
+g)perm(permission): This field is used to track the permissions.
+
+h)Pathlength : Stores the length of the path, which is stored in "pname " variable structure.
+
+i)err :  To track the err returned by vfs functions while executing the system call for the lower file system
+
+j)pname[1] : This field is used to store the name of the file/directory.File names are stored relative to the mount point and on replaying the relative structure will be created.
+
+ 
+ I have supported tracing of 7 system call ie Open,close,read,write,mkdir,rmdir and unlink.
+ I was trying to implement LINK and RENAME but due to shortage of time, I couldnt complete them.
+
+ In this implementation, as soon as a system call is triggered, it increments the record_counter from super block and record all the data to the output buffer. This output buffer is then immediately flushed to the output file. This way data will be available to replay after every execution.
+
+
+ 								----------------X----------------------------------X-----------------------
+B)User-side:
+____________
+
+Treplay
+-------
+As specified in the assignment, user program will replay the records based on the flag provided as input.
+
+In order to track the opened file and to avoid repeated opening of the file I have created a hash table, mapping file pointer previously saved in the record with fd which will be obtained once the file is opened by the user application. This hash table is in the form of linked list.
+
+It also checks for invalid mount point and invalid flags.
+
+Trctl:
+-------
+
+I have written two IOCTL macros to get and set the bitmap.
+#define TRFS_BITMAPSET _IOR(TRFS_MAGIC,0,char *)   //Read from user space and set in kernel
+#define TRFS_BITMAPGET _IOW(TRFS_MAGIC,1,char *)	//Write to user space
+
+using this macro and modifing the existing code in file.c I was able to control the bitmap setting from the user space.Unfortunately, I couldn't complete the Extra credit part.
+
+
+
+Reference:
+-----------
+1. IOCTL: 
+  a. http://docs.blackfin.uclinux.org/doku.php?id=linux-kernel:ioctls#ioctl_example_code
+  b. http://www.tldp.org/LDP/lkmpg/2.4/html/x856.html
+2. http://www.fsl.cs.sunysb.edu/project-list.html
+3.http://www.tldp.org/LDP/lki/lki-3.html
+
+		

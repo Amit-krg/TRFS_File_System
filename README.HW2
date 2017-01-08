@@ -87,8 +87,7 @@ none: will not trace any system call.
 
 <mountpoint>: mount point of the directory where trace file system is mounted
 
- 						--------------X----------------------X----------------------------X-------------------
-
+ 						--------X----------------------X----------------------
 
 		 
 Architecture of implementing TRFS File System.
@@ -125,14 +124,8 @@ c)fp(file pointer) : This field is used to keep the track of tone file being ope
 
 d)rsize(record size:	This field is updated only for read and write operation. It will tell the replayer how many bytes further to metadata are there 				which has either to be read and displayed or written back to the file.
 
-e)rtype(record_type) :	This field will tell the kind of record that is stored,currently my program supports 7 types of record as follows:
-OP_OPEN			0x01
-OP_CLOSE		0x02
-OP_READ			0x04
-OP_WRITE		0x08
-OP_MKDIR		0x10
-OP_RMDIR		0x20
-OP_UNLINK		0x80		
+e)rtype(record_type) :	This field will tell the kind of record that is stored,
+	
 
 The replay will display the same data in decimal form.
 
@@ -153,7 +146,7 @@ j)pname[1] : This field is used to store the name of the file/directory.File nam
  In this implementation, as soon as a system call is triggered, it increments the record_counter from super block and record all the data to the output buffer. This output buffer is then immediately flushed to the output file. This way data will be available to replay after every execution.
 
 
- 								----------------X----------------------------------X-----------------------
+ 								-----------X------------------------X---------------
 B)User-side:
 ____________
 
